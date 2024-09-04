@@ -1,19 +1,43 @@
+# -*- coding: utf-8 -*-
+"""
+pynoisecriteria - Noise criteria utility
+Copyright (c) 2024 Ikuo Obataya, Quantum Design Japan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+import sys
 from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 
 class NC_table:
     """
-    NC curve and estimation methods
+    Class contains NC curves and methods for estimation
     Call input_levels() method to input noise level at each frequency
-    L.L.Beranek, J. Acoust. Soc. Amer. 25, 313-321 (1953)
-    
+    L.L.Beranek, J. Acoust. Soc. Amer. 25, 313-321 (1953)    
     """
-    def __init__(self):
+    def __init__(self, loadfile=None):
         """
         Initialize NC curve
         """
         self.octave_bands = np.array([63, 125, 250, 500, 1000, 2000, 4000, 8000])
+        """ Frequencies for plot"""
         self.level_mat = np.array([
             [47, 36, 29, 22, 17, 14, 12, 11],
             [51, 40, 33, 26, 22, 19, 17, 16],
@@ -26,8 +50,17 @@ class NC_table:
             [74, 67, 62, 58, 56, 54, 53, 52],
             [77, 71, 67, 63, 61, 59, 58, 57],
         ], dtype=float)
+        """ NC curve by L.L.Beranek"""
         self.levels = ["NC-"+str(i) for i in range(15,65,5)]
-        self.data = None
+        """ Names of noise levels"""
+
+        if loadfile:
+            self.load(loadfile)
+            self.filename=loadfile[:-4]
+        else:
+            self.data = None
+            self.filename = None
+        """ User input data"""
     
     def input_levels(self):
         """
@@ -44,12 +77,13 @@ class NC_table:
         
         now = datetime.now()
         timestamp = now.strftime("%Y%m%d-%H%M%S")
-        filename = f"{timestamp}-NC-criteria"
+        self.filename = f"{timestamp}-NC-criteria"
         
-        self.save(filename + '.csv')
+        self.save(self.filename + '.csv')
 
+    def calculate_levels(self):
         self.calculate()
-        report = self.generate_report()        
+        report = self.print_text_table()        
         print(report)
         self.hr()
         print(f"NC level: {self.nc_level}")
@@ -57,7 +91,7 @@ class NC_table:
         for f in self.freqs:
             print(f"  Maximum level at {self.octave_bands[f]} Hz")
         self.hr()
-        self.plot_mat(overlay_ar=self.data, filename=filename+'.png')
+        self.plot_mat(overlay_ar=self.data, filename=self.filename+'.png')
         
 
     def load(self, filename):
@@ -93,30 +127,24 @@ class NC_table:
     def hr(self):
         print('-' * 72)
 
-    def generate_report(self) -> str:
-        # print column headers
+    def print_text_table(self):
+        """ テキストテーブルの出力 """
         print(f"{'':>7}", end="")
-        for band in self.octave_bands:
-            print(f"{band:>6} ", end="")
-        print()
-        
+        print(" ".join(f"{band:>6}" for band in self.octave_bands))
         # print data
         if self.data is not None:
+            self.hr()
             print(f"{'Data':>7}", end="")
-            for data in self.data:
-                print(f"{data:>6} ", end="")
-            print()     
-
+            print(" ".join(f"{data:>6}" for data in self.data))
+            self.hr()
         # print rows with labels
-        mat = self.level_mat
-        flag_mat = self.gt_NC
         for i, level in enumerate(self.levels):
             print(f"{level:>7}", end="")
-            for j, value in enumerate(mat[i]):
-                if flag_mat is None:
+            for j, value in enumerate(self.level_mat[i]):
+                if self.gt_NC is None:
                     print(f"{value:7.1f} ", end="")
                 else:
-                    if flag_mat[i][j]==1:
+                    if self.gt_NC[i][j]==1:
                         f = '*'
                     else:
                         f = ' '
@@ -124,36 +152,24 @@ class NC_table:
             print()
     
     def plot_mat(self, overlay_ar=None, filename=None):
-        # グラフのプロット
+        """ グラフのプロット """
         x_arr = self.octave_bands
         y_mat = self.level_mat
-        legends = self.levels
-        for i in range(y_mat.shape[0]):
-            if legends is None:
-                plt.plot(x_arr[:y_mat.shape[1]], y_mat[i], label=f"Line {i}")
-            else:
-                plt.plot(x_arr[:y_mat.shape[1]], y_mat[i], label=legends[i])
 
-        # 追加プロットがあれば描画
-        if overlay_ar is not None:
+        # NCカーブをプロット
+        for i in range(y_mat.shape[0]):
+            plt.plot(x_arr[:y_mat.shape[1]], y_mat[i], label=self.levels[i])  # NCプロット
+            plt.text(x_arr[-1] * 1.4, y_mat[i, -1], self.levels[i], va='center')  # NC名を手動で配置
+
+        if overlay_ar is not None:  # 追加プロットがあれば描画
             plt.plot(x_arr[:y_mat.shape[1]], overlay_ar, marker='s', label="Data")
 
-        # X軸を対数軸に設定
-        plt.xscale('log')
-
-        # グラフのラベル設定
-        plt.xlabel("X Axis")
-        plt.ylabel("Y Axis")
-        plt.title("NC curves")
-
-        # 凡例の表示
-        #plt.legend()
-        # ラベルをプロットの右側に手動で配置
-        for i in range(y_mat.shape[0]):
-            if legends is None:
-                plt.text(x_arr[-1] * 1.2, y_mat[i, -1], f"Line {i + 1}", va='center')
-            else:
-                plt.text(x_arr[-1] * 1.2, y_mat[i, -1], legends[i], va='center')            
+        plt.xscale('log')  # X軸を対数軸に設定
+        plt.grid(True, which='both', linestyle='--')  # グリッドを点線で表示
+        plt.xlabel("Frequency (Hz)")  # グラフのXラベル設定
+        plt.ylabel("Sound level (dB)")  # グラフのYラベル設定
+        plt.title("NC curves")  # タイトル
+        # plt.legend() -> 凡例の表示はしない
 
         # グラフの表示・保存
         if filename is not None:
@@ -162,5 +178,13 @@ class NC_table:
             plt.show()
 
 if __name__ == "__main__":
-    nc = NC_table()
-    nc.input_levels()
+    if len(sys.argv) == 2:
+        filename = sys.argv[1]
+        print(f"Loaded file: {filename}")
+        nc = NC_table(loadfile=filename)
+    else:
+        nc = NC_table()
+        nc.input_levels()
+    
+    if nc.data is not None:
+        nc.calculate_levels()
